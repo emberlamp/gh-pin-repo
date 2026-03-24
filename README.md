@@ -12,11 +12,37 @@ After extensive research and testing, the `updatePinnedItems` mutation **does no
    ```bash
    gh api graphql -f query='{__schema{mutationType{name fields{name}}}}' --jq '.data.__schema.mutationType.fields[].name' | grep -i pin
    ```
+   Output:
+   ```
+   pinEnvironment
+   pinIssue
+   pinIssueComment
+   unpinIssue
+   unpinIssueComment
+   ```
    Result: Only found `pinEnvironment`, `pinIssue`, `pinIssueComment` - no repo pinning
 
 2. **Search Pin Types in Schema**
    ```bash
    gh api graphql -f query='{__schema{types{name}}}' --jq '.data.__schema.types[].name' | grep -i pin
+   ```
+   Output:
+   ```
+   CancelSponsorshipInput
+   CreateSponsorshipInput
+   EnvironmentPinnedFilterField
+   IssueCommentPinnedEvent
+   IssueCommentUnpinnedEvent
+   PinEnvironmentInput
+   PinEnvironmentPayload
+   PinIssueCommentInput
+   PinIssueCommentPayload
+   PinIssueInput
+   PinIssuePayload
+   Pinnable
+   PinnableItem
+   PinnableItemConnection
+   ...
    ```
    Result: Found types like `Pinnable`, `PinnedIssue`, but no mutation to use them
 
@@ -24,18 +50,32 @@ After extensive research and testing, the `updatePinnedItems` mutation **does no
    ```bash
    gh api graphql -f query='mutation{updatePinnedItems(input:{pinnableId:"O_kgDOECK5jw", pinnedItemIds:["R_kgDORvpJ1w"]}){clientMutationId}}'
    ```
+   Output:
+   ```
+   {"errors":[{"path":["mutation","updatePinnedItems"],"extensions":{"code":"undefinedField","typeName":"Mutation","fieldName":"updatePinnedItems"},"locations":[{"line":1,"column":12}],"message":"Field 'updatePinnedItems' doesn't exist on type 'Mutation'"}]}
+   gh: Field 'updatePinnedItems' doesn't exist on type 'Mutation'
+   ```
    Result: `Field 'updatePinnedItems' doesn't exist on type 'Mutation'`
 
 4. **Try Proposed updateUserPinnedItems**
    ```bash
    gh api graphql -f query='mutation{updateUserPinnedItems(input:{itemIds:["R_kgDORvpJ1w"]}){user{pinnedItems{nodes{name}}}}}'
    ```
+   Output:
+   ```
+   {"errors":[{"path":["mutation","updateUserPinnedItems"],"extensions":{"code":"undefinedField","typeName":"Mutation","fieldName":"updateUserPinnedItems"},"locations":[{"line":1,"column":12}],"message":"Field 'updateUserPinnedItems' doesn't exist on type 'Mutation'"}]}
+   gh: Field 'updateUserPinnedItems' doesn't exist on type 'Mutation'
+   ```
    Result: `Field 'updateUserPinnedItems' doesn't exist on type 'Mutation'`
 
 5. **Check User/Org Pinnable Field**
    ```bash
    gh api graphql -f query='query{organization(login:"emberlamp"){pinnable{id}}}'
-   gh api graphql -f query='query{viewer{pinnable{id}}}'
+   ```
+   Output:
+   ```
+   {"errors":[{"path":["query","organization","pinnable"],"extensions":{"code":"undefinedField","typeName":"Organization","fieldName":"pinnable"},"locations":[{"line":1,"column":39}],"message":"Field 'pinnable' doesn't exist on type 'Organization'"}]}
+   gh: Field 'pinnable' doesn't exist on type 'Organization'
    ```
    Result: `Field 'pinnable' doesn't exist on type 'Organization/User'`
 
@@ -43,7 +83,21 @@ After extensive research and testing, the `updatePinnedItems` mutation **does no
    ```bash
    gh api /orgs/emberlamp | grep -i pin
    ```
+   Output:
+   ```
+   (no output - no pin-related endpoints found)
+   ```
    Result: No pin-related endpoints found
+
+7. **Direct curl to GitHub API**
+   ```bash
+   curl -s -H "Authorization: bearer TOKEN" -H "Content-Type: application/json" -X POST -d '{"query":"mutation{updatePinnedItems(input:{pinnableId:\"O_kgDOECK5jw\", pinnedItemIds:[\"R_kgDORvpJ1w\"]}){clientMutationId}}"}' https://api.github.com/graphql
+   ```
+   Output:
+   ```
+   {"errors":[{"path":["mutation","updatePinnedItems"],"extensions":{"code":"undefinedField","typeName":"Mutation","fieldName":"updatePinnedItems"},"locations":[{"line":1,"column":10}],"message":"Field 'updatePinnedItems' doesn't exist on type 'Mutation'"}]}
+   ```
+   Result: Same result - mutation doesn't exist
 
 This is a known missing feature - GitHub users have requested this API for years with no resolution.
 
