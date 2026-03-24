@@ -1,0 +1,71 @@
+#!/bin/bash
+
+# gh pin-repo - Pin repositories to organization profile
+# Usage: gh pin-repo <owner/repo> [owner/repo2] ...
+
+set -e
+
+EXTENSION_NAME="pin-repo"
+REPO_IDS=()
+
+# Get organization ID for Emberlamp
+get_org_id() {
+    gh api graphql -F query='{ organization(login: "emberlamp") { id } }' --jq '.data.organization.id'
+}
+
+# Get repository ID by name
+get_repo_id() {
+    local repo="$1"
+    gh api repos/"$repo" --jq '.id'
+}
+
+# Pin repositories
+pin_repos() {
+    local org_id="$1"
+    shift
+    local repos=("$@")
+    
+    # Get repo IDs
+    local repo_ids=""
+    for repo in "${repos[@]}"; do
+        local id=$(get_repo_id "$repo")
+        repo_ids="${repo_ids}{ repositoryId: \"$id\", type: REPOSITORY },"
+    done
+    
+    # Call GraphQL mutation
+    gh api graphql -F query="mutation { updatePinnedItems(input: {organizationId: \"$org_id\", pinnedItems: [$repo_ids]}) { clientMutationId } }"
+}
+
+# Main
+case "$1" in
+    --help|-h)
+        echo "gh pin-repo - Pin repositories to organization profile"
+        echo ""
+        echo "Usage:"
+        echo "  gh pin-repo <owner/repo> [owner/repo2] ...  Pin repositories"
+        echo "  gh pin-repo --list                         List pinned repos"
+        echo "  gh pin-repo --unpin <owner/repo>           Unpin a repository"
+        echo ""
+        echo "Examples:"
+        echo "  gh pin-repo emberlamp/general emberlamp/react-template"
+        exit 0
+        ;;
+    --list)
+        gh api graphql -F query='{ organization(login: "emberlamp") { pinnedItems(first: 6, types: REPOSITORY) { nodes { ... on Repository { name description url } } } } }'
+        exit 0
+        ;;
+    --unpin)
+        echo "Unpinning not yet implemented. Use GitHub UI."
+        exit 1
+        ;;
+    "")
+        echo "Error: No repository specified"
+        echo "Run 'gh pin-repo --help' for usage"
+        exit 1
+        ;;
+    *)
+        org_id=$(get_org_id)
+        pin_repos "$org_id" "$@"
+        echo "Pinned repos: $@"
+        ;;
+esac
