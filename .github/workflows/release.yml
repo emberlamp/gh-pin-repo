@@ -84,8 +84,8 @@ jobs:
           NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
           echo "NEW_TAG=$NEW_TAG" >> $GITHUB_OUTPUT
           echo "Creating tag: $NEW_TAG"
-          git tag $NEW_TAG
-          git push origin $NEW_TAG
+          git tag -f $NEW_TAG
+          git push -f origin $NEW_TAG
 
       - name: Generate release notes
         if: steps.version.outputs.bump != 'none'
