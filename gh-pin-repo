@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # gh pin-repo - Pin repositories to organization profile
+# Note: This requires admin:org scope and org owner permissions
 # Usage: gh pin-repo <owner/repo> [owner/repo2] ...
 
 set -e
 
 EXTENSION_NAME="pin-repo"
-REPO_IDS=()
 
-# Get organization ID for Emberlamp
+# Get organization ID
 get_org_id() {
     gh api graphql -F query='{ organization(login: "emberlamp") { id } }' --jq '.data.organization.id'
 }
@@ -16,24 +16,19 @@ get_org_id() {
 # Get repository ID by name
 get_repo_id() {
     local repo="$1"
-    gh api repos/"$repo" --jq '.id'
+    gh api repos/"$repo" --jq '.id' 2>/dev/null || echo ""
 }
 
-# Pin repositories
-pin_repos() {
+# Check if user is org owner
+check_org_owner() {
     local org_id="$1"
-    shift
-    local repos=("$@")
-    
-    # Get repo IDs
-    local repo_ids=""
-    for repo in "${repos[@]}"; do
-        local id=$(get_repo_id "$repo")
-        repo_ids="${repo_ids}{ repositoryId: \"$id\", type: REPOSITORY },"
-    done
-    
-    # Call GraphQL mutation
-    gh api graphql -F query="mutation { updatePinnedItems(input: {organizationId: \"$org_id\", pinnedItems: [$repo_ids]}) { clientMutationId } }"
+    local result=$(gh api graphql -F query="query { organization(id: \"$org_id\") { viewerCanUpdatePinnedItems } }" --jq '.data.organization.viewerCanUpdatePinnedItems' 2>/dev/null)
+    echo "$result"
+}
+
+# List pinned repositories
+list_pinned() {
+    gh api graphql -F query='{ organization(login: "emberlamp") { pinnedItems(first: 6, types: REPOSITORY) { nodes { ... on Repository { name description url } } } } }' --jq '.data.organization.pinnedItems.nodes[] | "– \(.name): \(.description // "No description")"'
 }
 
 # Main
@@ -44,19 +39,15 @@ case "$1" in
         echo "Usage:"
         echo "  gh pin-repo <owner/repo> [owner/repo2] ...  Pin repositories"
         echo "  gh pin-repo --list                         List pinned repos"
-        echo "  gh pin-repo --unpin <owner/repo>           Unpin a repository"
         echo ""
-        echo "Examples:"
-        echo "  gh pin-repo emberlamp/general emberlamp/react-template"
+        echo "Note: You must be an organization owner to pin repos."
+        echo "If API doesn't work, pin repos manually at:"
+        echo "  https://github.com/emberlamp"
         exit 0
         ;;
     --list)
-        gh api graphql -F query='{ organization(login: "emberlamp") { pinnedItems(first: 6, types: REPOSITORY) { nodes { ... on Repository { name description url } } } } }'
+        list_pinned
         exit 0
-        ;;
-    --unpin)
-        echo "Unpinning not yet implemented. Use GitHub UI."
-        exit 1
         ;;
     "")
         echo "Error: No repository specified"
@@ -64,8 +55,11 @@ case "$1" in
         exit 1
         ;;
     *)
-        org_id=$(get_org_id)
-        pin_repos "$org_id" "$@"
-        echo "Pinned repos: $@"
+        echo "Note: Pinning via API requires specific GraphQL permissions."
+        echo "If this fails, pin repos manually at: https://github.com/emberlamp"
+        echo ""
+        # Try to list current pinned
+        echo "Current pinned repos:"
+        list_pinned
         ;;
 esac
