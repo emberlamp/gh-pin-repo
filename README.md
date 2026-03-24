@@ -4,12 +4,46 @@ GitHub CLI extension to pin repositories to your organization profile.
 
 ## ⚠️ Important Note
 
-After extensive research and testing, the `updatePinnedItems` mutation **does not exist** in GitHub's API. I tried:
+After extensive research and testing, the `updatePinnedItems` mutation **does not exist** in GitHub's API. Here's exactly what I tried:
 
-- GraphQL schema introspection - no such mutation found
-- REST API endpoints - none available for pinning repos  
-- Direct GraphQL queries - returns "Field doesn't exist" error
-- Various GraphQL mutations for pins - only `pinIssue`, `pinIssueComment` exist (not for repos)
+### Methods Attempted
+
+1. **GraphQL Schema Introspection**
+   ```bash
+   gh api graphql -f query='{__schema{mutationType{name fields{name}}}}' --jq '.data.__schema.mutationType.fields[].name' | grep -i pin
+   ```
+   Result: Only found `pinEnvironment`, `pinIssue`, `pinIssueComment` - no repo pinning
+
+2. **Search Pin Types in Schema**
+   ```bash
+   gh api graphql -f query='{__schema{types{name}}}' --jq '.data.__schema.types[].name' | grep -i pin
+   ```
+   Result: Found types like `Pinnable`, `PinnedIssue`, but no mutation to use them
+
+3. **Try updatePinnedItems Mutation**
+   ```bash
+   gh api graphql -f query='mutation{updatePinnedItems(input:{pinnableId:"O_kgDOECK5jw", pinnedItemIds:["R_kgDORvpJ1w"]}){clientMutationId}}'
+   ```
+   Result: `Field 'updatePinnedItems' doesn't exist on type 'Mutation'`
+
+4. **Try Proposed updateUserPinnedItems**
+   ```bash
+   gh api graphql -f query='mutation{updateUserPinnedItems(input:{itemIds:["R_kgDORvpJ1w"]}){user{pinnedItems{nodes{name}}}}}'
+   ```
+   Result: `Field 'updateUserPinnedItems' doesn't exist on type 'Mutation'`
+
+5. **Check User/Org Pinnable Field**
+   ```bash
+   gh api graphql -f query='query{organization(login:"emberlamp"){pinnable{id}}}'
+   gh api graphql -f query='query{viewer{pinnable{id}}}'
+   ```
+   Result: `Field 'pinnable' doesn't exist on type 'Organization/User'`
+
+6. **REST API Check**
+   ```bash
+   gh api /orgs/emberlamp | grep -i pin
+   ```
+   Result: No pin-related endpoints found
 
 This is a known missing feature - GitHub users have requested this API for years with no resolution.
 
