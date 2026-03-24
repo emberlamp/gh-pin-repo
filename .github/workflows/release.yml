@@ -34,15 +34,17 @@ jobs:
             # Check last tag and commits to determine bump
             LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
             if [ -z "$LAST_TAG" ]; then
-              # No previous tags - check all commits on main
-              FEAT_COUNT=$(git log --all --oneline | grep -c "^feat:" || echo "0")
-              FIX_COUNT=$(git log --all --oneline | grep -c "^fix:" || echo "0")
+              # No previous tags - check commits on main
+              FEAT_COUNT=$(git log origin/main --oneline | grep -c "^feat:" || echo "0")
+              FIX_COUNT=$(git log origin/main --oneline | grep -c "^fix:" || echo "0")
             else
-              FEAT_COUNT=$(git log --pretty=format:"%s" $LAST_TAG..HEAD --ancestry-path | grep -c "^feat:" || echo "0")
-              FIX_COUNT=$(git log --pretty=format:"%s" $LAST_TAG..HEAD --ancestry-path | grep -c "^fix:" || echo "0")
+              # Check commits since last tag
+              FEAT_COUNT=$(git log $LAST_TAG..origin/main --oneline | grep -c "^feat:" || echo "0")
+              FIX_COUNT=$(git log $LAST_TAG..origin/main --oneline | grep -c "^fix:" || echo "0")
             fi
             FEAT_COUNT=$(echo "$FEAT_COUNT" | tr -d '[:space:]')
             FIX_COUNT=$(echo "$FIX_COUNT" | tr -d '[:space:]')
+            echo "FEAT_COUNT=$FEAT_COUNT FIX_COUNT=$FIX_COUNT LAST_TAG=$LAST_TAG"
             if [ "${FEAT_COUNT:-0}" -gt 0 ]; then
               BUMP="minor"
             elif [ "${FIX_COUNT:-0}" -gt 0 ]; then
