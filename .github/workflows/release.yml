@@ -123,8 +123,8 @@ jobs:
         if: steps.version.outputs.bump != 'none'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.version.outputs.NEW_TAG }}
-          name: Release ${{ steps.version.outputs.NEW_TAG }}
+          tag_name: ${{ github.ref }}
+          name: Release ${{ github.ref }}
           body_path: release_notes.md
           draft: false
         env:
