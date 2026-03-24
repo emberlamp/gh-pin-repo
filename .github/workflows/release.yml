@@ -2,8 +2,17 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version bump (major, minor, patch)'
+        default: 'patch'
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
 
 jobs:
   release:
@@ -14,57 +23,90 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version
+      - name: Determine version bump
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            BUMP="${{ github.event.inputs.version }}"
+          else
+            # Check last tag and commits to determine bump
+            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+            FEAT_COUNT=$(git log --pretty=format:"%s" $LAST_TAG..HEAD | grep -c "^feat:" || echo "0")
+            FIX_COUNT=$(git log --pretty=format:"%s" $LAST_TAG..HEAD | grep -c "^fix:" || echo "0")
+            if [ "$FEAT_COUNT" -gt 0 ]; then
+              BUMP="minor"
+            elif [ "$FIX_COUNT" -gt 0 ]; then
+              BUMP="patch"
+            else
+              BUMP="none"
+            fi
+          fi
+          echo "bump=$BUMP" >> $GITHUB_OUTPUT
+
+      - name: Bump version and tag
+        if: steps.version.outputs.bump != 'none'
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          VERSION=$(echo $LAST_TAG | sed 's/v//')
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          
+          case "${{ steps.version.outputs.bump }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+          
+          NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "NEW_TAG=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "Creating tag: $NEW_TAG"
+          git tag $NEW_TAG
+          git push origin $NEW_TAG
 
       - name: Generate release notes
+        if: steps.version.outputs.bump != 'none'
         id: release_notes
         run: |
-          # Parse conventional commits since last tag
-          echo "## What's Changed" >> release_notes.md
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "v0.0.0")
+          
+          echo "## What's Changed" > release_notes.md
           echo "" >> release_notes.md
           
-          # Features (feat:)
-          FEATS=$(git log --pretty=format:"%s" --after=$(git describe --tags --abbrev=0 2>/dev/null || echo "1970-01-01")..HEAD | grep "^feat:" | sed 's/^feat: /- /' || true)
+          FEATS=$(git log --pretty=format:"%s" $LAST_TAG..HEAD | grep "^feat:" | sed 's/^feat: /- /' || true)
           if [ -n "$FEATS" ]; then
             echo "### ✨ Features" >> release_notes.md
             echo "$FEATS" >> release_notes.md
             echo "" >> release_notes.md
           fi
-
-          # Bug fixes (fix:)
-          FIXES=$(git log --pretty=format:"%s" --after=$(git describe --tags --abbrev=0 2>/dev/null || echo "1970-01-01")..HEAD | grep "^fix:" | sed 's/^fix: /- /' || true)
+          
+          FIXES=$(git log --pretty=format:"%s" $LAST_TAG..HEAD | grep "^fix:" | sed 's/^fix: /- /' || true)
           if [ -n "$FIXES" ]; then
             echo "### 🐛 Bug Fixes" >> release_notes.md
             echo "$FIXES" >> release_notes.md
             echo "" >> release_notes.md
           fi
-
-          # Other changes
-          OTHERS=$(git log --pretty=format:"- %s (%an)" --after=$(git describe --tags --abbrev=0 2>/dev/null || echo "1970-01-01")..HEAD | grep -v "^feat:" | grep -v "^fix:" || true)
-          if [ -n "$OTHERS" ]; then
-            echo "### Other Changes" >> release_notes.md
-            echo "$OTHERS" >> release_notes.md
-          fi
-
-          # Get previous tag for comparison
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -n "$PREV_TAG" ]; then
+          
+          DOCS=$(git log --pretty=format:"%s" $LAST_TAG..HEAD | grep "^docs:" | sed 's/^docs: /- /' || true)
+          if [ -n "$DOCS" ]; then
+            echo "### 📝 Documentation" >> release_notes.md
+            echo "$DOCS" >> release_notes.md
             echo "" >> release_notes.md
-            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREV_TAG...${{ github.ref_name }}" >> release_notes.md
           fi
-
-          cat release_notes.md
+          
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$LAST_TAG...${{ steps.version.outputs.NEW_TAG }}" >> release_notes.md
 
       - name: Create Release
+        if: steps.version.outputs.bump != 'none'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref }}
-          name: Release v${{ steps.version.outputs.VERSION }}
+          tag_name: ${{ steps.version.outputs.NEW_TAG }}
+          name: Release ${{ steps.version.outputs.NEW_TAG }}
           body_path: release_notes.md
           draft: false
-          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: No release needed
+        if: steps.version.outputs.bump == 'none'
+        run: echo "No breaking changes or new features - no release needed"
