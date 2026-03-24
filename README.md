@@ -55,7 +55,7 @@ Add a mutation like:
 ```graphql
 mutation {
   updateUserPinnedItems(input: { 
-    itemIds: ["MDEwOlJlcG9zaXRvcnkxMjM0NTY3ODk=", "..."] 
+    itemIds: ["REPO_NODE_ID_1", "REPO_NODE_ID_2"] 
   }) {
     user { 
       pinnedItems(first: 6) { 
