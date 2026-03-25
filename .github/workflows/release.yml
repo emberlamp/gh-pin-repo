@@ -25,6 +25,9 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Fetch all tags
+        run: git fetch --tags --force origin
+
       - name: Determine version bump
         id: version
         run: |
@@ -32,7 +35,7 @@ jobs:
             BUMP="${{ github.event.inputs.version }}"
           else
             # Get commits on main since last tag
-            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "none")
+            LAST_TAG=$(git describe --tags --abbrev=0 origin/main 2>/dev/null || echo "none")
             
             # Get commit messages
             if [ "$LAST_TAG" = "none" ]; then
@@ -64,9 +67,10 @@ jobs:
           echo "bump=$BUMP" >> $GITHUB_OUTPUT
 
       - name: Bump version and tag
+        id: bump
         if: steps.version.outputs.bump != 'none'
         run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          LAST_TAG=$(git describe --tags --abbrev=0 origin/main 2>/dev/null || echo "")
           if [ -z "$LAST_TAG" ]; then
             MAJOR=1; MINOR=0; PATCH=0
           else
@@ -91,7 +95,7 @@ jobs:
         if: steps.version.outputs.bump != 'none'
         id: release_notes
         run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "v0.0.0")
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null | tr -d "\n")
           
           echo "## What's Changed" > release_notes.md
           echo "" >> release_notes.md
@@ -117,13 +121,12 @@ jobs:
             echo "" >> release_notes.md
           fi
           
-          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$LAST_TAG...${{ steps.version.outputs.NEW_TAG }}" >> release_notes.md
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$LAST_TAG...${{ steps.bump.outputs.NEW_TAG }}" >> release_notes.md
 
       - name: Create Release
         if: steps.version.outputs.bump != 'none'
         run: |
-          # Get the tag that was just pushed
-          TAG=$(git describe --tags --abbrev=0)
+          TAG="${{ steps.bump.outputs.NEW_TAG }}"
           echo "Creating release for tag: $TAG"
           
           # Check if release already exists
