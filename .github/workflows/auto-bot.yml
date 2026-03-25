@@ -1,0 +1,78 @@
+name: Emberlamp Auto Bot
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  repository_dispatch:
+    types: [config-update]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'sync'
+        type: choice
+        options:
+          - sync
+          - update
+          - backup
+          - report
+
+env:
+  ORG: emberlamp
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  sync-repos:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Fetch repos from config
+        id: config
+        run: |
+          curl -s https://raw.githubusercontent.com/${{ env.ORG }}/config/main/repos.json > repos.json
+          echo "config_repos=$(cat repos.json | jq -r '.repos | join(",")')" >> $GITHUB_OUTPUT
+
+      - name: Get current GitHub repos
+        id: github
+        run: |
+          echo "github_repos=$(gh api orgs/${{ env.ORG }}/repos --jq '.[].name' | tr '\n' ',')" >> $GITHUB_OUTPUT
+
+      - name: Compare repos
+        run: |
+          CONFIG=${{ steps.config.outputs.config_repos }}
+          GITHUB=${{ steps.github.outputs.github_repos }}
+          CONFIG_SORTED=$(echo "$CONFIG" | tr ',' '\n' | grep -v '^$' | sort | tr '\n' ',')
+          GITHUB_SORTED=$(echo "$GITHUB" | tr ',' '\n' | grep -v '^$' | sort | tr '\n' ',')
+          if [ "$CONFIG_SORTED" = "$GITHUB_SORTED" ]; then
+            echo "✅ Repos are in sync!"
+          else
+            echo "⚠️ Repos are out of sync!"
+          fi
+
+  backup-repos:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'backup'
+    permissions:
+      contents: write
+    steps:
+      - name: Create backup archive
+        run: |
+          mkdir -p backup
+          REPOS=$(gh api orgs/${{ env.ORG }}/repos --jq '.[].name')
+          for repo in $REPOS; do
+            git clone --mirror "https://github.com/${{ env.ORG }}/$repo.git" "backup/$repo.git"
+          done
+          tar -czf emberlamp-backup-$(date +%Y%m%d).tar.gz backup/
+
+      - name: Upload backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: emberlamp-backup
+          path: emberlamp-backup-*.tar.gz
