@@ -13,34 +13,131 @@ on:
           - sync
           - backup
           - report
+          - all
+
+env:
+  ORG: emberlamp
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    if: github.event.inputs.action == 'sync' || github.event_name == 'schedule'
+    if: github.event.inputs.action == 'sync' || github.event.inputs.action == 'all' || github.event_name == 'schedule'
     steps:
-      - uses: actions/checkout@v4
-      - name: Sync repos
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install gh
         run: |
-          echo "Running sync automation..."
-          # Add sync commands here
+          type -p gh >/dev/null 2>&1 || npm install -g gh
+
+      - name: Fetch repos config
+        run: |
+          echo "Fetching repos from config..."
+          CONFIG_URL="https://raw.githubusercontent.com/${{ env.ORG }}/config/main/repos.json"
+          REPOS=$(curl -s $CONFIG_URL | jq -r '.repos[]')
+          echo "Config repos: $REPOS"
+          echo "repos=$REPOS" >> $GITHUB_OUTPUT
+
+      - name: Get GitHub repos
+        run: |
+          echo "Fetching GitHub repos..."
+          GH_REPOS=$(gh api repos/${{ env.ORG }} --jq '.[].name' | sort | tr '\n' ',' | sed 's/,$//')
+          echo "GitHub repos: $GH_REPOS"
+          echo "github_repos=$GH_REPOS" >> $GITHUB_OUTPUT
+
+      - name: Compare repos
+        run: |
+          CONFIG="${{ steps.fetch-config.outputs.repos }}"
+          GITHUB="${{ steps.fetch-github.outputs.github_repos }}"
+          
+          # Sort both
+          CONFIG_SORTED=$(echo "$CONFIG" | tr ',' '\n' | sort | tr '\n' ',')
+          GITHUB_SORTED=$(echo "$GITHUB" | tr ',' '\n' | grep -v '^$' | sort | tr '\n' ',')
+          
+          if [ "$CONFIG_SORTED" = "$GITHUB_SORTED" ]; then
+            echo "✅ Repos are in sync!"
+          else
+            echo "⚠️ Repos are out of sync!"
+            echo "Config: $CONFIG_SORTED"
+            echo "GitHub: $GITHUB_SORTED"
+          fi
 
   backup:
     runs-on: ubuntu-latest
-    if: github.event.inputs.action == 'backup'
+    if: github.event.inputs.action == 'backup' || github.event.inputs.action == 'all'
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install gh
+        run: type -p gh >/dev/null 2>&1 || npm install -g gh
+
       - name: Create backup
         run: |
-          echo "Creating backup..."
-          # Add backup commands here
+          echo "Creating backup of all repos..."
+          BACKUP_FILE="backup-$(date +%Y%m%d-%H%M%S).json"
+          
+          # Backup repos
+          gh api repos/${{ env.ORG }} > $BACKUP_FILE
+          
+          echo "Backup created: $BACKUP_FILE"
+          echo "backup_file=$BACKUP_FILE" >> $GITHUB_OUTPUT
+
+      - name: Upload backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-backup
+          path: backup-*.json
+          retention-days: 30
 
   report:
     runs-on: ubuntu-latest
-    if: github.event.inputs.action == 'report'
+    if: github.event.inputs.action == 'report' || github.event.inputs.action == 'all' || github.event_name == 'schedule'
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install gh
+        run: type -p gh >/dev/null 2>&1 || npm install -g gh
+
       - name: Generate report
         run: |
-          echo "Generating report..."
-          # Add report commands here
+          echo "Generating emberlamp organization report..."
+          
+          # Get repo count
+          REPO_COUNT=$(gh api repos/${{ env.ORG }} --jq 'length')
+          
+          # Get release count
+          RELEASE_COUNT=0
+          for repo in $(gh api repos/${{ env.ORG }} --jq '.[].name'); do
+            COUNT=$(gh api repos/${{ env.ORG }}/$repo/releases --jq 'length' 2>/dev/null || echo 0)
+            RELEASE_COUNT=$((RELEASE_COUNT + COUNT))
+          done
+          
+          # Get workflow count
+          WORKFLOW_COUNT=0
+          for repo in $(gh api repos/${{ env.ORG }} --jq '.[].name'); do
+            COUNT=$(gh api repos/${{ env.ORG }}/$repo/actions/workflows --jq '.workflows | length' 2>/dev/null || echo 0)
+            WORKFLOW_COUNT=$((WORKFLOW_COUNT + COUNT))
+          done
+          
+          echo "# Emberlamp Organization Report" > report.md
+          echo "" >> report.md
+          echo "Generated: $(date)" >> report.md
+          echo "" >> report.md
+          echo "## Summary" >> report.md
+          echo "- Repositories: $REPO_COUNT" >> report.md
+          echo "- Releases: $RELEASE_COUNT" >> report.md
+          echo "- Workflows: $WORKFLOW_COUNT" >> report.md
+          
+          cat report.md
+          
+          echo "report_content=$(cat report.md | base64)" >> $GITHUB_OUTPUT
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: org-report
+          path: report.md
+          retention-days: 7
